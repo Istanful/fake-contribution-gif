@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title></title>
+  </head>
+  <body>
+    <div
+      class="preview"
+      style="display: inline-block; padding: 2rem; border: 1px solid black"
+    ></div>
+    <div class="controls">
+      <button onclick="addFrame()">Add frame</button>
+      <button onclick="Preview.stop()">Stop</button>
+      <button onclick="Preview.play()">Play</button>
+      <button onclick="saveFrames()">Save</button>
+      <button onclick="loadFrames()">Load</button>
+      <label for="fps">Frames per second</label>
+      <input type="number" id="fps" value="10" />
+    </div>
+
+    <style>
+      .graph {
+        border-spacing: 3px;
+      }
+
+      .day {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        padding: 0;
+        outline: 1px solid rgba(27, 31, 35, 0.06);
+        outline-offset: -1px;
+      }
+
+      .day--faded {
+        opacity: 0.5;
+      }
+
+      .day--contributed-none {
+        background: #ecedf0;
+      }
+
+      .day--contributed-s {
+        background: #9ce9a8;
+      }
+
+      .day--contributed-m {
+        background: #40c463;
+      }
+
+      .day--contributed-l {
+        background: #31a14e;
+      }
+
+      .day--contributed-xl {
+        background: #216e39;
+      }
+    </style>
+    <script>
+      const CONTRIBUTION_GRADES = ["none", "s", "m", "l", "xl"];
+      let playBackScale = 1;
+      let frames = [];
+
+      function getLuminance(r, g, b) {
+        return 1 - (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      }
+
+      function chunk(array, size) {
+        return array.reduce(
+          ([chunks, takeFrom]) => {
+            if (takeFrom.length === 0) {
+              return [chunks, takeFrom];
+            }
+
+            return [[...chunks, takeFrom.slice(0, size)], takeFrom.slice(size)];
+          },
+          [[], array]
+        )[0];
+      }
+
+      function createElement(type, attributes = {}) {
+        const el = document.createElement(type);
+        assignElementAttributes(el, attributes);
+        return el;
+      }
+
+      function assignElementAttributes(el, attributes = {}) {
+        Object.entries(attributes).forEach(([key, value]) => {
+          switch (key) {
+            case "className":
+              Object.entries(value).forEach(([className, isActive]) => {
+                if (isActive) {
+                  el.classList.add(className);
+                } else {
+                  el.classList.remove(className);
+                }
+              });
+              break;
+          }
+        });
+      }
+
+      class Graph {
+        constructor(contributions, overlaySrc = undefined) {
+          this.contributions = contributions;
+          this.table = createElement("table", { className: { graph: true } });
+          this.overlaySrc = overlaySrc;
+        }
+
+        draw() {
+          this.table.innerHTML = "";
+          if (this.overlaySrc) {
+            this.table.style.backgroundImage = `url(${this.overlaySrc})`;
+          }
+
+          this.rows.forEach((row, y) => {
+            const tr = createElement("tr");
+            row.forEach((gradeIndex, x) => {
+              let localGradeIndex = gradeIndex;
+              const grade = CONTRIBUTION_GRADES[gradeIndex];
+
+              const td = createElement("td", {
+                className: {
+                  day: true,
+                  [`day--contributed-${grade}`]: true,
+                  [`day--faded`]: this.overlaySrc,
+                },
+              });
+              td.onclick = () => {
+                gradeIndex = (gradeIndex + 1) % CONTRIBUTION_GRADES.length;
+                this.contributions[x][y] = gradeIndex;
+                this.draw();
+              };
+              tr.appendChild(td);
+            });
+            this.table.appendChild(tr);
+          });
+          return this.table;
+        }
+
+        get rows() {
+          return Array(7)
+            .fill()
+            .map((_, i) => {
+              return this.contributions.map((column) => column[i]);
+            });
+        }
+      }
+
+      function addFrame({
+        fileSrc = undefined,
+        graph = new Graph(
+          Array(52)
+            .fill()
+            .map((c) =>
+              Array(7)
+                .fill()
+                .map(() => 0)
+            )
+        ),
+      }) {
+        const table = graph.draw();
+        frames.push(graph);
+        document.body.appendChild(table);
+        const fileInput = createElement("input");
+        fileInput.type = "text";
+        fileInput.value = fileSrc;
+        fileInput.onchange = (event) => {
+          const canvas = createElement("canvas");
+          const image = createElement("img");
+          image.setAttribute("crossOrigin", "");
+          image.src = event.target.value;
+          image.onload = () => {
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            canvas.getContext("2d").drawImage(image, 0, 0);
+            const imageData = canvas
+              .getContext("2d")
+              .getImageData(0, 0, canvas.width, canvas.height);
+            let pixels = [];
+
+            for (let i = 0; i < imageData.data.length; i += 4) {
+              pixels.push([
+                imageData.data[i],
+                imageData.data[i + 1],
+                imageData.data[i + 2],
+                imageData.data[i + 3],
+              ]);
+            }
+
+            chunk(pixels, 52).forEach((row, y) => {
+              row.forEach((pixel, x) => {
+                const [r, g, b] = pixel;
+                const luminance = getLuminance(r, g, b);
+                const gradeIndex = Math.floor(
+                  luminance * CONTRIBUTION_GRADES.length
+                );
+                graph.contributions[x][y] = gradeIndex;
+              });
+            });
+            graph.draw();
+          };
+        };
+        fileInput.dispatchEvent(new Event("change"));
+        const removeButton = createElement("button");
+        removeButton.innerHTML = "Remove";
+        removeButton.onclick = () => {
+          frames = frames.filter((frame) => frame !== graph);
+          table.remove();
+          fileInput.remove();
+          removeButton.remove();
+        };
+        document.body.appendChild(removeButton);
+        document.body.appendChild(fileInput);
+      }
+
+      class Preview {
+        static autoPlay() {
+          const framesPerSecond = parseInt(
+            document.getElementById("fps").value
+          );
+          const frameDuration = 1000 / framesPerSecond;
+          const container = document.querySelector(".preview");
+          const frameIndex =
+            Math.round(new Date().getTime() / frameDuration) % frames.length;
+
+          container.innerHTML = "";
+          const frame = frames[frameIndex];
+
+          if (frame) {
+            container.appendChild(frame.table.cloneNode(true));
+          }
+
+          setTimeout(() => {
+            Preview.autoPlay();
+          }, frameDuration);
+        }
+
+        static play(frameIndex = 0) {
+          playBackScale = 1;
+        }
+
+        static stop() {
+          playBackScale = 0;
+        }
+      }
+
+      Preview.autoPlay();
+
+      function saveFrames() {
+        localStorage.setItem("contributionFrames", JSON.stringify(frames));
+      }
+
+      function loadFrames() {
+        const json = localStorage.getItem("contributionFrames");
+        frames = [];
+        JSON.parse(json).forEach((frameOpts) => {
+          addFrame(new Graph(frameOpts.contributions, frameOpts.overlaySrc));
+        });
+      }
+
+      function loadFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const filesStr = urlParams.get("files");
+        const files = JSON.parse(filesStr);
+        files.forEach((file) => {
+          addFrame({ fileSrc: file });
+        });
+      }
+
+      loadFromUrl();
+    </script>
+  </body>
+</html>
