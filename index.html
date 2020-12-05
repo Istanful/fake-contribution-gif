@@ -263,10 +263,13 @@
       function loadFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
         const filesStr = urlParams.get("files");
-        const files = JSON.parse(filesStr);
-        files.forEach((file) => {
-          addFrame({ fileSrc: file });
-        });
+
+        if (filesStr) {
+          const files = JSON.parse(filesStr);
+          files.forEach((file) => {
+            addFrame({ fileSrc: file });
+          });
+        }
       }
 
       loadFromUrl();
