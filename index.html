@@ -159,7 +159,7 @@
                 .map(() => 0)
             )
         ),
-      }) {
+      } = {}) {
         const table = graph.draw();
         frames.push(graph);
         document.body.appendChild(table);
@@ -194,7 +194,7 @@
                 const [r, g, b] = pixel;
                 const luminance = getLuminance(r, g, b);
                 const gradeIndex = Math.floor(
-                  luminance * CONTRIBUTION_GRADES.length
+                  luminance * (CONTRIBUTION_GRADES.length - 1)
                 );
                 graph.contributions[x][y] = gradeIndex;
               });
